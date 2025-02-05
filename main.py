@@ -67,11 +67,11 @@ def log_to_logs(data):
 user_data = load_invoices()
 
 for user_id, data in user_data.items():
-    data['expiration'] = (datetime.now() + timedelta(minutes=2)).strftime('%Y-%m-%d %H:%M:%S')
+    data['expiration'] = (datetime.now() + timedelta(days=27)).strftime('%Y-%m-%d %H:%M:%S')
 
 save_invoices(user_data)
 
-@tasks.loop(minutes=1)
+@tasks.loop(hours=24)
 async def send_reminders():
     now = datetime.now()
     invoices = load_invoices()
@@ -79,7 +79,7 @@ async def send_reminders():
     for user_id, data in invoices.copy().items(): 
         try:
             
-            reminder_time = datetime.strptime(data['expiration'], '%Y-%m-%d %H:%M:%S') - timedelta(minutes=1)
+            reminder_time = datetime.strptime(data['expiration'], '%Y-%m-%d %H:%M:%S') - timedelta(days=1)
 
             if now >= reminder_time and now < datetime.strptime(data['expiration'], '%Y-%m-%d %H:%M:%S'):
                 user = await bot.fetch_user(user_id)
@@ -133,7 +133,7 @@ async def invoice(ctx, user: discord.Member, product: str, ingame_name: str):
     amount = product_prices[product]
 
     duration_days = 28  
-    expiration_time = datetime.utcnow() + timedelta(minutes=3)  
+    expiration_time = datetime.utcnow() + timedelta(days=28)  
     timestamp = f"<t:{int(expiration_time.timestamp())}:R>" 
     invoice_gen_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") 
     
