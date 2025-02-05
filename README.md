@@ -1,6 +1,4 @@
-Here’s the entire README file in code block format:
 
-```markdown
 # Invoices Bot
 
 Invoices Bot is a Discord bot designed to help manage and track invoices for your server. It allows administrators to send invoice reminders to users, track their payment status, and much more!
