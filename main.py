@@ -4,6 +4,7 @@ from discord import app_commands
 import json
 from datetime import datetime, timedelta
 from configs import *
+from discord.app_commands import checks
 
 intents = discord.Intents.default()
 intents.messages = True
@@ -56,16 +57,9 @@ def load_logs():
 
 def save_logs(data):
     with open(LOGS_FILE, 'w') as f:
-        json.dump(logs, f, indent=4)
+        json.dump(data, f, indent=4)
 
-user_data = load_invoices()
-
-for user_id, data in user_data.items():
-    data['expiration'] = (datetime.now() + timedelta(minutes=2)).strftime('%Y-%m-%d %H:%M:%S')
-
-save_invoices(user_data)
-
-@tasks.loop(hours=24)
+@tasks.loop(minutes=1)
 async def send_reminders():
     now = datetime.utcnow()
     invoices = load_invoices()
@@ -73,8 +67,7 @@ async def send_reminders():
 
     for user_id, data in invoices.copy().items():
         try:
-            
-            reminder_time = datetime.strptime(data['expiration'], '%Y-%m-%d %H:%M:%S') - timedelta(minutes=1)
+            reminder_time = datetime.strptime(data['reminder'], '%Y-%m-%d %H:%M:%S')
 
             if now >= reminder_time:
                 user = await bot.fetch_user(int(user_id))
@@ -128,6 +121,7 @@ async def send_reminders():
     reminder_time="Time before invoice expires to send a reminder (e.g., 1d, 12h, 30m)",
     attachment="Proof of payment (mandatory)"
 )
+@app_commands.checks.has_role(1337080845718126673)
 async def invoice(interaction: discord.Interaction, buyer: discord.Member, in_game_name: str, service: str, duration: str, reminder_time: str, attachment: discord.Attachment):
     service = service.lower()
     if service not in product_prices:
@@ -163,14 +157,15 @@ async def invoice(interaction: discord.Interaction, buyer: discord.Member, in_ga
         await interaction.response.send_message("❌ Invalid reminder time format! Use 'd' for days, 'h' for hours, or 'm' for minutes.", ephemeral=True)
         return
 
-    amount = product_prices[product]
+    # Calculate reminder time
+    reminder_time_final = expiration_time - timedelta(days=reminder_offset)
 
-    duration_days = 28  
-    expiration_time = datetime.utcnow() + timedelta(minutes=3)  
-    timestamp = f"<t:{int(expiration_time.timestamp())}:R>" 
-    invoice_gen_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") 
-    
-    # Create the embed message for the invoice
+    # Convert timestamps
+    expiration_timestamp = f"<t:{int(expiration_time.timestamp())}:R>"
+    reminder_timestamp = f"<t:{int(reminder_time_final.timestamp())}:R>"
+    invoice_gen_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Invoice embed
     embed = discord.Embed(
         title="📜 Payment Invoice",
         description="Thank you for your purchase! Contact support for any issues.",
@@ -214,5 +209,13 @@ async def invoice(interaction: discord.Interaction, buyer: discord.Member, in_ga
         "proof": attachment.url
     }
     save_invoices(invoices)
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error):
+    if isinstance(error, app_commands.MissingRole):
+        await interaction.response.send_message("❌ You do not have permission to use this command!", ephemeral=True)
+    else:
+        await interaction.response.send_message("⚠️ An error occurred while processing the command.", ephemeral=True)
+
 
 bot.run(BOT_TOKEN)
