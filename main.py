@@ -1,11 +1,10 @@
 import discord
 from discord.ext import commands, tasks
+from discord import app_commands
 import json
-import os
 from datetime import datetime, timedelta
-from configs import *  
+from configs import *
 
-# Intents for the bot to work properly
 intents = discord.Intents.default()
 intents.messages = True
 intents.members = True
@@ -15,10 +14,8 @@ intents.dm_messages = True
 LOGS_FILE = 'logs.json'
 INVOICES_FILE = 'invoices.json'
 
-# Create the bot instance with prefix and intents
 bot = commands.Bot(command_prefix="-", intents=intents)
 
-# Define the product prices for different ranks
 product_prices = {
     "celestia": 199,
     "eldrin": 149,
@@ -26,17 +23,19 @@ product_prices = {
     "titan": 49,
 }
 
-# Channel where invoice logs are sent
 INVOICE_CHANNEL_ID = INVOICE_CHANNEL_ID
 LOG_CHANNEL_ID = INVOICE_CHANNEL_ID
 
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user}')
-    send_reminders.start()  
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} commands.")
+    except Exception as e:
+        print(f"Error syncing commands: {e}")
+    send_reminders.start()
 
-
-# Load user data from invoices.json
 def load_invoices():
     try:
         with open(INVOICES_FILE, 'r') as f:
@@ -44,153 +43,175 @@ def load_invoices():
     except FileNotFoundError:
         return {}
 
-# Save user data to invoices.json
 def save_invoices(data):
     with open(INVOICES_FILE, 'w') as f:
         json.dump(data, f, indent=4)
 
-# Append user data to logs.json
-def log_to_logs(data):
+def load_logs():
     try:
         with open(LOGS_FILE, 'r') as f:
-            logs = json.load(f)
-            if not isinstance(logs, list):  # Check if logs is not a list
-                logs = []  # Initialize as an empty list if it's not
+            return json.load(f)
     except FileNotFoundError:
-        logs = []
+        return {}
 
-    logs.append(data)
-
+def save_logs(data):
     with open(LOGS_FILE, 'w') as f:
         json.dump(logs, f, indent=4)
 
 user_data = load_invoices()
 
 for user_id, data in user_data.items():
-    data['expiration'] = (datetime.now() + timedelta(days=27)).strftime('%Y-%m-%d %H:%M:%S')
+    data['expiration'] = (datetime.now() + timedelta(minutes=2)).strftime('%Y-%m-%d %H:%M:%S')
 
 save_invoices(user_data)
 
 @tasks.loop(hours=24)
 async def send_reminders():
-    now = datetime.now()
+    now = datetime.utcnow()
     invoices = load_invoices()
-    
-    for user_id, data in invoices.copy().items(): 
+    logs = load_logs()  # Load existing logs
+
+    for user_id, data in invoices.copy().items():
         try:
             
-            reminder_time = datetime.strptime(data['expiration'], '%Y-%m-%d %H:%M:%S') - timedelta(days=1)
+            reminder_time = datetime.strptime(data['expiration'], '%Y-%m-%d %H:%M:%S') - timedelta(minutes=1)
 
-            if now >= reminder_time and now < datetime.strptime(data['expiration'], '%Y-%m-%d %H:%M:%S'):
-                user = await bot.fetch_user(user_id)
-
-                # Send a DM reminder to the user
+            if now >= reminder_time:
+                user = await bot.fetch_user(int(user_id))
                 embed = discord.Embed(
-                    title="📜 Your Payment Reminder",
-                    description=f"Hello <@{user.id}>,\n\n"
-                                f"🥇 **Rank:** {data['service']}\n"
-                                f"💰 **Amount:** Rs. 199\n"
-                                f"⌛ **Duration:** 28 Day\n"
-                                f"📅 **Reminder Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                                "Please ensure your payment is made soon!",
+                    title="⏳ Payment Reminder",
+                    description="This is a reminder for your pending payment. Please complete the payment before the due date to avoid any delays or penalties.",
                     color=discord.Color.red()
                 )
+
+                embed.add_field(name="👤 Buyer", value=f"{user.mention}", inline=False)
+                embed.add_field(name="🆔 Buyer ID", value=f"{data['UserID']}", inline=False)
+                embed.add_field(name="🎮 Buyer In-Game Name", value=f"{data['ingame_name']}", inline=False)
+                embed.add_field(name="🛠 Staff Handler", value=f"<@{data['staff']}>", inline=False)
+                embed.add_field(name="🛒 Service", value=f"{data['service']}", inline=False)
+                embed.add_field(name="💰 Amount", value=f"Rs. {data['amount']}", inline=False)
+                embed.add_field(name="⌛ Payment Date", value=f"<t:{int(reminder_time.timestamp())}:D>", inline=False)
+                embed.add_field(name="⚠ Status", value="**Pending Payment**", inline=False)
+
+                embed.add_field(
+                    name="📌 Payment Instructions",
+                    value=f"Please make the payment using `UPI` on the same UPI ID and send proof as soon as possible to Modmail.\n\n"
+                          "In case you forgot the UPI ID, please open Modmail for the same.",
+                    inline=False
+                )
+
                 await user.send(embed=embed)
 
-                # Log the reminder to the invoice log channel
                 log_channel = bot.get_channel(LOG_CHANNEL_ID)
                 log_embed = discord.Embed(
-                    title="📜 Reminder Sent",
-                    description=f"Reminder was sent to <@{user.id}> about their invoice.\n\n"
-                                f"🛠 **Staff:** <@{bot.user.id}>\n"
-                                f"**Rank:** {data['service']}\n"
-                                f"**In-Game Name:** {data['ingame_name']}\n"
-                                f"**Reminder Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    description=f"📢 Reminder sent to {user.mention}, handled by <@{data['staff']}>.",
                     color=discord.Color.green()
                 )
                 await log_channel.send(embed=log_embed)
 
-                # Move the user data to logs.json after sending the reminder
-                log_to_logs(data)
+                # Move the invoice entry to logs.json instead of deleting it
+                logs[user_id] = data
+                save_logs(logs)  # Save the updated logs
 
-                # Remove the user from invoices.json
-                del invoices[user_id]
-                save_invoices(invoices)
+                del invoices[user_id]  # Remove from invoices.json
+                save_invoices(invoices)  # Save the updated invoices.json
+
         except Exception as e:
-            print(f"Error processing reminder for user {user_id}: {e}")
+            print(f"Error sending reminder for user {user_id}: {e}")
 
-# Command to generate invoice
-@bot.command()
-async def invoice(ctx, user: discord.Member, product: str, ingame_name: str):
-    """Send a payment invoice in DM as an embed and log to a channel with possible attachment"""
+@bot.tree.command(name="invoice", description="Generate an invoice for a user")
+@app_commands.describe(
+    buyer="The buyer",
+    in_game_name="The buyer's in-game name",
+    service="The service/rank to purchase",
+    duration="The duration (e.g., 28d, 2h, 30m)",
+    reminder_time="Time before invoice expires to send a reminder (e.g., 1d, 12h, 30m)",
+    attachment="Proof of payment (mandatory)"
+)
+async def invoice(interaction: discord.Interaction, buyer: discord.Member, in_game_name: str, service: str, duration: str, reminder_time: str, attachment: discord.Attachment):
+    service = service.lower()
+    if service not in product_prices:
+        await interaction.response.send_message("❌ Invalid service! Choose from: Celestia, Eldrin, Phantom, Titan.", ephemeral=True)
+        return
 
-    # Check if the product exists in the dictionary
-    product = product.lower()
-    if product not in product_prices:
-        await ctx.send(f"❌ Invalid product! Choose from: Celestia, Eldrin, Phantom, Titan, Testproduct.", ephemeral=True)
+    amount = product_prices[service]
+
+    # Parse duration
+    duration_days = 0
+    if duration.endswith('d'):
+        duration_days = int(duration[:-1])
+    elif duration.endswith('h'):
+        duration_days = int(duration[:-1]) / 24
+    elif duration.endswith('m'):
+        duration_days = int(duration[:-1]) / 1440
+    else:
+        await interaction.response.send_message("❌ Invalid duration format! Use 'd' for days, 'h' for hours, or 'm' for minutes.", ephemeral=True)
+        return
+
+    # Calculate expiration time
+    expiration_time = datetime.utcnow() + timedelta(days=duration_days)
+
+    # Parse reminder time
+    reminder_offset = 0
+    if reminder_time.endswith('d'):
+        reminder_offset = int(reminder_time[:-1])
+    elif reminder_time.endswith('h'):
+        reminder_offset = int(reminder_time[:-1]) / 24
+    elif reminder_time.endswith('m'):
+        reminder_offset = int(reminder_time[:-1]) / 1440
+    else:
+        await interaction.response.send_message("❌ Invalid reminder time format! Use 'd' for days, 'h' for hours, or 'm' for minutes.", ephemeral=True)
         return
 
     amount = product_prices[product]
 
     duration_days = 28  
-    expiration_time = datetime.utcnow() + timedelta(days=28)  
+    expiration_time = datetime.utcnow() + timedelta(minutes=3)  
     timestamp = f"<t:{int(expiration_time.timestamp())}:R>" 
     invoice_gen_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") 
     
     # Create the embed message for the invoice
     embed = discord.Embed(
-        title="📜 Your Payment Invoice",
-        description=f"Hello {user.mention},\n\n"
-                    f"🥇 **Rank:** {product.capitalize()} ranks\n"
-                    f"💰 **Amount:** {amount} INR\n"
-                    f"⌛ **Duration:** {duration_days} Day(s) ({timestamp})",
+        title="📜 Payment Invoice",
+        description="Thank you for your purchase! Contact support for any issues.",
         color=discord.Color.blue()
     )
+    embed.add_field(name="👤 Buyer", value=buyer.mention, inline=False)
+    embed.add_field(name="🆔 Buyer ID", value=str(buyer.id), inline=True)
+    embed.add_field(name="🎮 Buyer In-Game Name", value=in_game_name, inline=False)
+    embed.add_field(name="🛠️ Staff Handler", value=interaction.user.mention, inline=False)
+    embed.add_field(name="🛒 Service", value=service.capitalize(), inline=False)
+    embed.add_field(name="💰 Amount", value=f"Rs. {amount}", inline=True)
+    embed.add_field(name="📅 Date & Time", value=invoice_gen_time, inline=False)
+    embed.add_field(name="⏳ Duration", value=f"{duration_days} Day(s) ({expiration_timestamp})", inline=False)
+    embed.add_field(name="🔔 Auto Reminder", value=f"Reminder will be sent {reminder_timestamp}", inline=False)
+    embed.add_field(name="📄 Proof:", value=f"[Attachment]({attachment.url})", inline=False)
 
-    # Create the log embed message
-    log_embed = discord.Embed(
-        title="📋 Invoice Generated",
-        description=(f"**Buyer:** {user.mention}\n"
-                     f"**In-game Name:** {ingame_name}\n"
-                     f"**Staff:** {ctx.author.mention}\n"
-                     f"**Service:** {product.capitalize()} rank\n"
-                     f"**Paid Amount:** Rs. {amount}\n"
-                     f"**Invoice Generated On:** {invoice_gen_time}\n"
-                     f"**Time Remaining:** {timestamp}"),
-        color=discord.Color.green()
-    )
+    embed.set_footer(text="Thank you for your purchase! Contact support for any issues.")
 
-    # Check if the user is already in invoices.json (to avoid duplication)
     invoices = load_invoices()
-    if user.id in invoices:
-        await ctx.send(f"❌ This user already has an active invoice. Please remove the previous invoice first.")
+    if str(buyer.id) in invoices:
+        await interaction.response.send_message("❌ This user already has an active invoice. Remove the previous invoice first.", ephemeral=True)
         return
 
-    # Send the log message in the specified channel as an embed
     invoice_channel = bot.get_channel(INVOICE_CHANNEL_ID)
-    await invoice_channel.send(embed=log_embed)
+    await invoice_channel.send(embed=embed)
 
-    # Check if there are any attachments in the command message
-    if ctx.message.attachments:
-        # Send attachment to the invoice log channel
-        for attachment in ctx.message.attachments:
-            if attachment.filename.lower().endswith(('png', 'jpg', 'jpeg', 'gif')):
-                await invoice_channel.send(f"**Attachment for Invoice:** {attachment.url}")
-
-    # Try to send the DM to the user
     try:
-        await user.send(embed=embed)
-        await ctx.send(f"✅ Invoice sent to {user.mention} via DM!")
+        await buyer.send(embed=embed)
+        await interaction.response.send_message(f"✅ Invoice sent to {buyer.mention} via DM!", ephemeral=True)
     except discord.Forbidden:
-        await ctx.send(f"⚠️ Could not DM {user.mention}. They might have DMs disabled!")
+        await interaction.response.send_message(f"⚠️ Could not DM {buyer.mention}. They might have DMs disabled!", ephemeral=True)
 
-    # Save the invoice data in the JSON file
-    invoices[user.id] = {
-        "service": product.capitalize(),
+    invoices[str(buyer.id)] = {
+        "UserID": buyer.id,
+        "service": service.capitalize(),
         "amount": amount,
         "expiration": expiration_time.strftime("%Y-%m-%d %H:%M:%S"),
-        "ingame_name": ingame_name,
-        "staff": str(ctx.author.id)
+        "reminder": reminder_time_final.strftime("%Y-%m-%d %H:%M:%S"),
+        "ingame_name": in_game_name,
+        "staff": str(interaction.user.id),
+        "proof": attachment.url
     }
     save_invoices(invoices)
 
