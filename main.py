@@ -5,6 +5,9 @@ import json
 from datetime import datetime, timedelta
 from configs import *
 from discord.app_commands import checks
+import typing
+from typing import Optional
+
 
 intents = discord.Intents.default()
 intents.messages = True
@@ -14,6 +17,7 @@ intents.dm_messages = True
 
 LOGS_FILE = 'logs.json'
 INVOICES_FILE = 'invoices.json'
+ROLE_ID_MV = [1218583488710840432, 1302868010855436360, 1310020946106777723]
 
 bot = commands.Bot(command_prefix="-", intents=intents)
 
@@ -193,10 +197,12 @@ async def invoice(interaction: discord.Interaction, buyer: discord.Member, in_ga
     await invoice_channel.send(embed=embed)
 
     try:
+        await interaction.response.defer(ephemeral=True)  # Defer response to prevent timeout
         await buyer.send(embed=embed)
-        await interaction.response.send_message(f"✅ Invoice sent to {buyer.mention} via DM!", ephemeral=True)
+        await interaction.followup.send(f"✅ Invoice sent to {buyer.mention} via DM!", ephemeral=True)
     except discord.Forbidden:
-        await interaction.response.send_message(f"⚠️ Could not DM {buyer.mention}. They might have DMs disabled!", ephemeral=True)
+        await interaction.followup.send(f"⚠️ Could not DM {buyer.mention}. They might have DMs disabled!", ephemeral=True)
+
 
     invoices[str(buyer.id)] = {
         "UserID": buyer.id,
@@ -210,12 +216,173 @@ async def invoice(interaction: discord.Interaction, buyer: discord.Member, in_ga
     }
     save_invoices(invoices)
 
-@bot.tree.error
-async def on_app_command_error(interaction: discord.Interaction, error):
-    if isinstance(error, app_commands.MissingRole):
-        await interaction.response.send_message("❌ You do not have permission to use this command!", ephemeral=True)
+from datetime import datetime, timedelta
+
+@bot.tree.command(name="reminder", description="Manually send a payment reminder to a user")
+@app_commands.describe(
+    buyer="The buyer who needs a reminder",
+    buyer_id="Buyer’s Discord ID",
+    ingame_name="Buyer’s in-game name",
+    staff="Staff member handling the payment (mention them)",
+    service="Service name",
+    amount="Amount in Rs.",
+    expiration="Expiration time (e.g., 1d, 2h, 30m)"
+)
+@app_commands.checks.has_role(1337080845718126673)
+async def reminder(
+    interaction: discord.Interaction,
+    buyer: discord.Member,
+    buyer_id: str,
+    ingame_name: str,
+    staff: discord.Member,
+    service: str,
+    amount: int,
+    expiration: str
+):
+    logs = load_logs()
+    invoices = load_invoices()
+
+    # Convert expiration time (e.g., "1d", "2h", "30m") to a Unix timestamp
+    time_units = {"d": "days", "h": "hours", "m": "minutes"}
+    try:
+        num, unit = int(expiration[:-1]), expiration[-1]
+        if unit not in time_units:
+            raise ValueError
+        delta = timedelta(**{time_units[unit]: num})
+        expiration_timestamp = int((datetime.now() + delta).timestamp())
+    except (ValueError, TypeError):
+        await interaction.response.send_message("❌ Invalid expiration format. Use `1d`, `2h`, `30m` etc.", ephemeral=True)
+        return
+
+    # Delete existing entry in invoices.json if found
+    if buyer_id in invoices:
+        del invoices[buyer_id]
+        save_invoices(invoices)
+
+    # Create the embed for the reminder
+    embed = discord.Embed(
+        title="⏳ Manual Payment Reminder",
+        description="This is a manual reminder for your pending payment. Please complete it before the due date.",
+        color=discord.Color.red()
+    )
+
+    embed.add_field(name="👤 Buyer", value=f"{buyer.mention}", inline=False)
+    embed.add_field(name="🆔 Buyer ID", value=f"{buyer_id}", inline=False)
+    embed.add_field(name="🎮 Buyer In-Game Name", value=f"{ingame_name}", inline=False)
+    embed.add_field(name="🛠 Staff Handler", value=f"{staff.mention}", inline=False)
+    embed.add_field(name="🛒 Service", value=f"{service}", inline=False)
+    embed.add_field(name="💰 Amount", value=f"Rs. {amount}", inline=False)
+    embed.add_field(name="⌛ Payment Date", value=f"<t:{expiration_timestamp}:D>", inline=False)
+    embed.add_field(name="⚠ Status", value="**Pending Payment**", inline=False)
+    embed.add_field(
+        name="📌 Payment Instructions",
+        value="Please make the payment via UPI and send proof in Modmail.\nIf you forgot the UPI ID, contact Modmail.",
+        inline=False
+    )
+
+    # Send the reminder
+    try:
+        await buyer.send(embed=embed)
+        await interaction.response.send_message(f"✅ Reminder sent to {buyer.mention} via DM!", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.response.send_message(f"⚠️ Could not DM {buyer.mention}. They might have DMs disabled!", ephemeral=True)
+
+    # Log the reminder action
+    log_channel = bot.get_channel(LOG_CHANNEL_ID)
+    log_embed = discord.Embed(
+        description=f"📢 Manual reminder sent to {buyer.mention}, handled by {interaction.user.mention}.",
+        color=discord.Color.green()
+    )
+    await log_channel.send(embed=log_embed)
+
+    # Save log entry
+    logs[buyer_id] = {
+        "status": "Manual Reminder Sent",
+        "buyer": buyer.mention,
+        "ingame_name": ingame_name,
+        "staff": staff.mention,
+        "service": service,
+        "amount": amount,
+        "expiration": expiration
+    }
+    save_logs(logs)
+
+
+@bot.tree.command(name="reload", description="Reload a specific command")
+@app_commands.describe(command_name="The name of the command to reload")
+@app_commands.checks.has_role(1218583488710840432)  # Restrict to specific role
+async def reload(interaction: discord.Interaction, command_name: str):
+    try:
+        bot.tree.remove_command(command_name)  # Remove old version
+        await bot.tree.sync()  # Sync changes
+        await interaction.response.send_message(f"✅ Command `{command_name}` has been reloaded.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Failed to reload `{command_name}`: `{e}`", ephemeral=True)
+
+@bot.tree.command(name="move", description="Move a player to another user or voice channel")
+@app_commands.describe(
+    player="The player to be moved",
+    target_user="The user whose voice channel they should be moved to (optional)",
+    target_channel="The voice channel they should be moved to (optional)"
+)
+async def move_slash(
+    interaction: discord.Interaction,
+    player: discord.Member,
+    target_user: Optional[discord.Member] = None,
+    target_channel: Optional[discord.VoiceChannel] = None
+):
+    await move_logic(interaction, player, target_user, target_channel, is_slash=True)
+
+
+@bot.command(name="move", aliases=["mv"])
+async def move_prefix(ctx: commands.Context, player: discord.Member, target: Optional[discord.Member | discord.VoiceChannel] = None):
+    # Check if the target is a user or a channel
+    target_user = target if isinstance(target, discord.Member) else None
+    target_channel = target if isinstance(target, discord.VoiceChannel) else None
+
+    await move_logic(ctx, player, target_user, target_channel, is_slash=False)
+
+
+async def move_logic(ctx, player, target_user, target_channel, is_slash: bool):
+    """Handles the move logic for both slash and prefix commands"""
+    
+    # Check if the command user has at least one required role
+    user = ctx.user if is_slash else ctx.author
+    if not any(role.id in ROLE_ID_MV for role in user.roles):
+        await send_message(ctx, "❌ You don't have permission to use this command!", is_slash)
+        return
+
+    # Check if player is in a voice channel
+    if not player.voice or not player.voice.channel:
+        await send_message(ctx, f"❌ {player.name} is not in a voice channel!", is_slash)
+        return
+
+    # Determine where to move the player
+    if target_user and target_user.voice and target_user.voice.channel:
+        destination = target_user.voice.channel
+    elif target_channel:
+        destination = target_channel
     else:
-        await interaction.response.send_message("⚠️ An error occurred while processing the command.", ephemeral=True)
+        await send_message(ctx, "❌ You must specify either a user in a voice channel or a voice channel!", is_slash)
+        return
+
+    # Move the player
+    try:
+        await player.move_to(destination)
+        await send_message(ctx, f"✅ Moved {player.name} to `{destination.name}`!", is_slash)
+    except discord.Forbidden:
+        await send_message(ctx, f"⚠️ I don't have permission to move {player.name}!", is_slash)
+    except Exception as e:
+        await send_message(ctx, f"⚠️ Error moving player: `{e}`", is_slash)
+
+
+async def send_message(ctx, message: str, is_slash: bool):
+    """Handles sending messages for both slash and prefix commands"""
+    if is_slash:
+        await ctx.response.send_message(message, ephemeral=False)
+    else:
+        await ctx.send(message)
+
 
 
 bot.run(BOT_TOKEN)
