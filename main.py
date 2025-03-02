@@ -18,6 +18,7 @@ intents.dm_messages = True
 LOGS_FILE = 'logs.json'
 INVOICES_FILE = 'invoices.json'
 ROLE_ID_MV = [1218583488710840432, 1302868010855436360, 1310020946106777723]
+ROLE_ID_MSG = [1218583488710840432, 1302868010855436360, 1310020946106777723]
 
 bot = commands.Bot(command_prefix="-", intents=intents)
 
@@ -382,6 +383,28 @@ async def send_message(ctx, message: str, is_slash: bool):
         await ctx.response.send_message(message, ephemeral=False)
     else:
         await ctx.send(message)
+
+@bot.command(name="msg", aliases=["message"])
+async def msg(ctx, channel: Optional[discord.TextChannel] = None, *, message: str):
+    if not any(role.id in ROLE_ID_MSG for role in ctx.author.roles):
+        return await ctx.send("❌ You don't have permission to use this command!", delete_after=5)
+
+    await ctx.message.delete()  
+    target_channel = channel or ctx.channel  
+    await target_channel.send(message)
+
+
+@bot.tree.command(name="message", description="Send a message to a channel (optional)")
+@app_commands.describe(message="The message to send", channel="Target channel (optional)")
+async def slash_msg(interaction: discord.Interaction, message: str, channel: Optional[discord.TextChannel] = None):
+    if not any(role.id in ROLE_ID_MSG for role in interaction.user.roles):
+        await interaction.response.send_message("❌ You don't have permission to use this command!", ephemeral=True)
+        return
+
+    target_channel = channel or interaction.channel  
+    await target_channel.send(message)
+    await interaction.response.send_message("✅ Message sent!", ephemeral=True)  
+
 
 
 
