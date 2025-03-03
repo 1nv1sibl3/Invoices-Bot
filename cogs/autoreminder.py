@@ -6,8 +6,8 @@ import json
 from datetime import datetime, timedelta
 import os
 
-INVOICES_FILE = "test_invoices.json"  
-LOGS_FILE = "test_logs.json"          
+INVOICES_FILE = "invoices.json"  
+LOGS_FILE = "logs.json"          
 LOG_CHANNEL_ID = 1336384115959791728    
 
 def load_invoices():
