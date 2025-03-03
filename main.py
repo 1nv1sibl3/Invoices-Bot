@@ -539,7 +539,7 @@ async def coininvoice(interaction: discord.Interaction, player: discord.Member, 
 
     discounted_nr = nr_amount * ((100 - discount) / 100)
 
-    date_of_purchase = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    date_of_purchase = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     invoice_entry = {
         "UserID": player.id,
@@ -572,12 +572,12 @@ async def coininvoice(interaction: discord.Interaction, player: discord.Member, 
     embed.add_field(name="🛠 Staff Handler", value=interaction.user.mention, inline=True)
     embed.set_footer(text="⚠ Status: Payment Done")
 
-    await interaction.response.send_message(embed=embed, ephemeral=False)
+    try:
+        await player.send(embed=embed)
+    except discord.Forbidden:
+        await interaction.followup.send(f"⚠ {player.mention} has DMs closed. Unable to send invoice.", ephemeral=True)
 
     log_channel = bot.get_channel(LOG_CHANNEL_ID)
-    await log_channel.send(f"{interaction.user.mention} has created a new invoice:", embed=embed)
-
-    await interaction.followup.send("✅ **Invoice has been successfully sent!**", ephemeral=False)
-
+    await log_channel.send(embed=embed)
 
 bot.run(BOT_TOKEN)
