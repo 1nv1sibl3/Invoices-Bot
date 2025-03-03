@@ -17,8 +17,16 @@ intents.dm_messages = True
 
 LOGS_FILE = 'logs.json'
 INVOICES_FILE = 'invoices.json'
-ROLE_ID_MV = [1218583488710840432, 1302868010855436360, 1310020946106777723]
-ROLE_ID_MSG = [1218583488710840432, 1302868010855436360, 1310020946106777723]
+COINS_INVOICE= "coin_invoices.json"
+INVOICES_ROLE = 1337080845718126673 
+ROLE_ID_MV = []
+ROLE_ID_MSG = []
+ROLE_ID_WV = []
+ROLE_ID_STATUS = [] 
+
+if not os.path.exists(COINS_INVOICE):
+    with open(COINS_INVOICE, "w") as f:
+        json.dump([], f)
 
 bot = commands.Bot(command_prefix="-", intents=intents)
 
@@ -405,7 +413,171 @@ async def slash_msg(interaction: discord.Interaction, message: str, channel: Opt
     await target_channel.send(message)
     await interaction.response.send_message("✅ Message sent!", ephemeral=True)  
 
+@bot.command(name="wv", aliases=["whichvc"])
+async def which_vc(ctx, user: Optional[discord.Member] = None):
+    if not any(role.id in ROLE_ID_MV for role in ctx.author.roles):
+        return await ctx.send("❌ You don't have permission to use this command!", delete_after=5)
 
+    if ctx.message.reference and not user:
+        referenced_message = await ctx.channel.fetch_message(ctx.message.reference.message_id)
+        user = referenced_message.author
+
+    user = user or ctx.author  
+
+    if user.voice and user.voice.channel:
+        await ctx.send(f"🎧 **{user.display_name}** is currently in **{user.voice.channel.name}** - <#{user.voice.channel.id}>")
+    else:
+        await ctx.send(f"🚫 **{user.display_name}** is not in any voice channel!")
+
+@bot.tree.command(name="whichvc", description="Check which voice channel a user is in")
+@app_commands.describe(user="The user to check (leave empty to check yourself)")
+async def slash_which_vc(interaction: discord.Interaction, user: Optional[discord.Member] = None):
+    if not any(role.id in ROLE_ID_MV for role in interaction.user.roles):
+        await interaction.response.send_message("❌ You don't have permission to use this command!", ephemeral=True)
+        return
+
+    user = user or interaction.user  
+
+    if user.voice and user.voice.channel:
+        await interaction.response.send_message(f"🎧 **{user.display_name}** is currently in **{user.voice.channel.name}** - <#{user.voice.channel.id}>")
+    else:
+        await interaction.response.send_message(f"🚫 **{user.display_name}** is not in any voice channel!")
+
+@bot.command(name="setstatus")
+async def set_status(ctx, status: str, activity_type: str, *, message: str):
+    if not any(role.id in ROLE_ID_STATUS for role in ctx.author.roles):
+        return await ctx.send("❌ You don't have permission to use this command!", delete_after=5)
+
+    # Convert status input to Discord status
+    status_dict = {
+        "online": Status.online,
+        "idle": Status.idle,
+        "dnd": Status.dnd,
+        "invisible": Status.invisible
+    }
+    
+    activity_dict = {
+        "playing": ActivityType.playing,
+        "watching": ActivityType.watching,
+        "listening": ActivityType.listening,
+        "competing": ActivityType.competing
+    }
+
+    # Validate status and activity
+    if status.lower() not in status_dict:
+        return await ctx.send("❌ Invalid status! Choose from: `online`, `idle`, `dnd`, `invisible`", delete_after=5)
+    
+    if activity_type.lower() not in activity_dict:
+        return await ctx.send("❌ Invalid activity type! Choose from: `playing`, `watching`, `listening`, `competing`", delete_after=5)
+
+    # Set bot's status
+    await bot.change_presence(status=status_dict[status.lower()], activity=Activity(type=activity_dict[activity_type.lower()], name=message))
+    await ctx.send(f"✅ Bot status updated to **{status.capitalize()}** and **{activity_type.capitalize()} {message}**")
+
+
+# Slash Command (/setstatus)
+@bot.tree.command(name="setstatus", description="Set the bot's status and activity")
+@app_commands.describe(
+    status="Choose the bot's status",
+    activity_type="Type of activity (Playing, Watching, Listening, Competing)",
+    message="The custom status message"
+)
+@app_commands.choices(
+    status=[
+        app_commands.Choice(name="Online", value="online"),
+        app_commands.Choice(name="Idle", value="idle"),
+        app_commands.Choice(name="Do Not Disturb", value="dnd"),
+        app_commands.Choice(name="Invisible", value="invisible")
+    ],
+    activity_type=[
+        app_commands.Choice(name="Playing", value="playing"),
+        app_commands.Choice(name="Watching", value="watching"),
+        app_commands.Choice(name="Listening", value="listening"),
+        app_commands.Choice(name="Competing", value="competing")
+    ]
+)
+async def slash_set_status(interaction: discord.Interaction, status: str, activity_type: str, message: str):
+    if not any(role.id in ROLE_ID_STATUS for role in interaction.user.roles):
+        await interaction.response.send_message("❌ You don't have permission to use this command!", ephemeral=True)
+        return
+
+    # Convert inputs to Discord status
+    status_dict = {
+        "online": Status.online,
+        "idle": Status.idle,
+        "dnd": Status.dnd,
+        "invisible": Status.invisible
+    }
+
+    activity_dict = {
+        "playing": ActivityType.playing,
+        "watching": ActivityType.watching,
+        "listening": ActivityType.listening,
+        "competing": ActivityType.competing
+    }
+
+    await bot.change_presence(status=status_dict[status], activity=Activity(type=activity_dict[activity_type], name=message))
+    await interaction.response.send_message(f"✅ Bot status updated to **{status.capitalize()}** and **{activity_type.capitalize()} {message}**", ephemeral=True)
+
+@bot.tree.command(name="coininvoice", description="Create a coin invoice for a player.")
+@app_commands.describe(
+    player="The player receiving the coins",
+    ingame_name="The player's in-game name",
+    coin_amount="Amount of coins",
+    discount="Discount percentage (0-100)"
+)
+async def coininvoice(interaction: discord.Interaction, player: discord.Member, ingame_name: str, coin_amount: int, discount: float):
+    if INVOICES_ROLE not in [role.id for role in interaction.user.roles]:
+        await interaction.response.send_message("❌ You don't have permission to use this command!", ephemeral=True)
+        return
+    
+    if discount < 0 or discount > 100:
+        await interaction.response.send_message("❌ Discount must be between 0% and 100%!", ephemeral=True)
+        return
+    
+    nr_amount = coin_amount / 10
+
+    discounted_nr = nr_amount * ((100 - discount) / 100)
+
+    date_of_purchase = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    invoice_entry = {
+        "UserID": player.id,
+        "Username": player.name,
+        "InGameName": ingame_name,
+        "Coins": coin_amount,
+        "INR_Equivalent": nr_amount,
+        "Discount": discount,
+        "Final_INR_Amount": discounted_nr,
+        "DateOfPurchase": date_of_purchase,
+        "StaffHandler": interaction.user.id
+    }
+
+    with open(COINS_INVOICE, "r") as f:
+        invoices = json.load(f)
+
+    invoices.append(invoice_entry)
+
+    with open(COINS_INVOICE, "w") as f:
+        json.dump(invoices, f, indent=4)
+
+    embed = discord.Embed(title="📝 Coin Invoice", color=discord.Color.gold())
+    embed.add_field(name="👤 Player", value=f"{player.mention} ({player.name})", inline=True)
+    embed.add_field(name="🎮 In-Game Name", value=f"`{ingame_name}`", inline=True)
+    embed.add_field(name="💰 Coins", value=f"`{coin_amount}`", inline=False)
+    embed.add_field(name="💵 INR Equivalent (before discount)", value=f"`{nr_amount}`", inline=True)
+    embed.add_field(name="🎟 Discount Applied", value=f"`{discount}%`", inline=True)
+    embed.add_field(name="💲 Final INR Amount", value=f"`{discounted_nr}`", inline=False)
+    embed.add_field(name="📅 Date of Purchase", value=f"`{date_of_purchase}`", inline=False)
+    embed.add_field(name="🛠 Staff Handler", value=interaction.user.mention, inline=True)
+    embed.set_footer(text="⚠ Status: Payment Done")
+
+    await interaction.response.send_message(embed=embed, ephemeral=False)
+
+    log_channel = bot.get_channel(LOG_CHANNEL_ID)
+    await log_channel.send(f"{interaction.user.mention} has created a new invoice:", embed=embed)
+
+    await interaction.followup.send("✅ **Invoice has been successfully sent!**", ephemeral=False)
 
 
 bot.run(BOT_TOKEN)
