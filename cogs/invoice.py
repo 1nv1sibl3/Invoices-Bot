@@ -6,7 +6,9 @@ from discord import app_commands
 import json
 from datetime import datetime, timedelta
 import os
-from configs import INVOICES_FILE, INVOICE_CHANNEL_ID  
+from configs import INVOICE_CHANNEL_ID  
+
+INVOICES_FILE = "invoices.json"
 
 product_prices = {
     "celestia": 199,
