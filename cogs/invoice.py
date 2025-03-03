@@ -17,14 +17,14 @@ product_prices = {
     "titan": 49
 }
 
-LOG_CHANNEL_ID = INVOICE_CHANNEL_ID
+LOG_CHANNEL_ID = INVOICE_CHANNEL_ID  
 
 def load_invoices():
     try:
         with open(INVOICES_FILE, 'r') as f:
             return json.load(f)
     except FileNotFoundError:
-        return {}
+        return []
 
 def save_invoices(data):
     with open(INVOICES_FILE, 'w') as f:
@@ -36,43 +36,49 @@ class InvoiceCog(commands.Cog):
 
     @app_commands.command(name="invoice", description="Generate an invoice for a user")
     @app_commands.describe(
-        buyer="The buyer",
+        buyer="The buyer (user mention)",
         in_game_name="The buyer's in-game name",
         service="The service/rank to purchase",
         duration="The duration (e.g., 28d, 2h, 30m)",
         reminder_time="Time before invoice expires to send a reminder (e.g., 1d, 12h, 30m)",
         attachment="Proof of payment (mandatory)"
     )
+    @app_commands.choices(service=[
+        app_commands.Choice(name="Celestia", value="celestia"),
+        app_commands.Choice(name="Eldrin", value="eldrin"),
+        app_commands.Choice(name="Phantom", value="phantom"),
+        app_commands.Choice(name="Titan", value="titan")
+    ])
     @app_commands.checks.has_role(1337080845718126673)
-    async def invoice(self, interaction: discord.Interaction, buyer: discord.Member, in_game_name: str, service: str, duration: str, reminder_time: str, attachment: discord.Attachment):
-        service = service.lower()
-        if service not in product_prices:
-            await interaction.response.send_message("❌ Invalid service! Choose from: Celestia, Eldrin, Phantom, Titan.", ephemeral=True)
-            return
+    async def invoice(self, interaction: discord.Interaction, buyer: discord.Member, in_game_name: str, service: app_commands.Choice[str], duration: str, reminder_time: str, attachment: discord.Attachment):
+        service_value = service.value
+        amount = product_prices[service_value]
 
-        amount = product_prices[service]
-
-        duration_days = 0
-        if duration.endswith('d'):
-            duration_days = int(duration[:-1])
-        elif duration.endswith('h'):
-            duration_days = int(duration[:-1]) / 24
-        elif duration.endswith('m'):
-            duration_days = int(duration[:-1]) / 1440
-        else:
+        try:
+            if duration.endswith('d'):
+                duration_days = int(duration[:-1])
+            elif duration.endswith('h'):
+                duration_days = int(duration[:-1]) / 24
+            elif duration.endswith('m'):
+                duration_days = int(duration[:-1]) / 1440
+            else:
+                raise ValueError
+        except ValueError:
             await interaction.response.send_message("❌ Invalid duration format! Use 'd' for days, 'h' for hours, or 'm' for minutes.", ephemeral=True)
             return
 
         expiration_time = datetime.utcnow() + timedelta(days=duration_days)
 
-        reminder_offset = 0
-        if reminder_time.endswith('d'):
-            reminder_offset = int(reminder_time[:-1])
-        elif reminder_time.endswith('h'):
-            reminder_offset = int(reminder_time[:-1]) / 24
-        elif reminder_time.endswith('m'):
-            reminder_offset = int(reminder_time[:-1]) / 1440
-        else:
+        try:
+            if reminder_time.endswith('d'):
+                reminder_offset = int(reminder_time[:-1])
+            elif reminder_time.endswith('h'):
+                reminder_offset = int(reminder_time[:-1]) / 24
+            elif reminder_time.endswith('m'):
+                reminder_offset = int(reminder_time[:-1]) / 1440
+            else:
+                raise ValueError
+        except ValueError:
             await interaction.response.send_message("❌ Invalid reminder time format! Use 'd' for days, 'h' for hours, or 'm' for minutes.", ephemeral=True)
             return
 
@@ -90,7 +96,7 @@ class InvoiceCog(commands.Cog):
         embed.add_field(name="🆔 Buyer ID", value=str(buyer.id), inline=True)
         embed.add_field(name="🎮 Buyer In-Game Name", value=in_game_name, inline=False)
         embed.add_field(name="🛠️ Staff Handler", value=interaction.user.mention, inline=False)
-        embed.add_field(name="🛒 Service", value=service.capitalize(), inline=False)
+        embed.add_field(name="🛒 Service", value=service_value.capitalize(), inline=False)
         embed.add_field(name="💰 Amount", value=f"Rs. {amount}", inline=True)
         embed.add_field(name="📅 Date & Time", value=invoice_gen_time, inline=False)
         embed.add_field(name="⏳ Duration", value=f"{duration_days} Day(s) ({expiration_timestamp})", inline=False)
@@ -99,9 +105,19 @@ class InvoiceCog(commands.Cog):
         embed.set_footer(text="Thank you for your purchase! Contact support for any issues.")
 
         invoices = load_invoices()
-        if str(buyer.id) in invoices:
-            await interaction.response.send_message("❌ This user already has an active invoice. Remove the previous invoice first.", ephemeral=True)
-            return
+        new_invoice = {
+            "UserID": buyer.id,
+            "service": service_value.capitalize(),
+            "amount": amount,
+            "expiration": expiration_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "reminder": reminder_time_final.strftime("%Y-%m-%d %H:%M:%S"),
+            "ingame_name": in_game_name,
+            "staff": str(interaction.user.id),
+            "proof": attachment.url,
+            "invoice_generated": invoice_gen_time
+        }
+        invoices.append(new_invoice)
+        save_invoices(invoices)
 
         invoice_channel = self.bot.get_channel(INVOICE_CHANNEL_ID)
         await invoice_channel.send(embed=embed)
@@ -112,18 +128,6 @@ class InvoiceCog(commands.Cog):
             await interaction.followup.send(f"✅ Invoice sent to {buyer.mention} via DM!", ephemeral=True)
         except discord.Forbidden:
             await interaction.followup.send(f"⚠️ Could not DM {buyer.mention}. They might have DMs disabled!", ephemeral=True)
-
-        invoices[str(buyer.id)] = {
-            "UserID": buyer.id,
-            "service": service.capitalize(),
-            "amount": amount,
-            "expiration": expiration_time.strftime("%Y-%m-%d %H:%M:%S"),
-            "reminder": reminder_time_final.strftime("%Y-%m-%d %H:%M:%S"),
-            "ingame_name": in_game_name,
-            "staff": str(interaction.user.id),
-            "proof": attachment.url
-        }
-        save_invoices(invoices)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(InvoiceCog(bot))

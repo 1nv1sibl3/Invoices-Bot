@@ -17,7 +17,7 @@ def load_invoices():
         with open(INVOICES_FILE, 'r') as f:
             return json.load(f)
     except FileNotFoundError:
-        return {}
+        return []
 
 def save_invoices(data):
     with open(INVOICES_FILE, 'w') as f:
@@ -28,7 +28,7 @@ def load_logs():
         with open(LOGS_FILE, 'r') as f:
             return json.load(f)
     except FileNotFoundError:
-        return {}
+        return []
 
 def save_logs(data):
     with open(LOGS_FILE, 'w') as f:
@@ -49,26 +49,34 @@ class ReminderCog(commands.Cog):
     )
     @app_commands.checks.has_role(ALLOWED_ROLE_ID)
     async def reminder(self, interaction: discord.Interaction, buyer: discord.Member, ingame_name: str, staff: discord.Member, service: str, amount: int, expiration: str):
-        # Derive buyer_id from the buyer member
-        buyer_id = str(buyer.id)
-        logs = load_logs()
-        invoices = load_invoices()
-
         time_units = {"d": "days", "h": "hours", "m": "minutes"}
         try:
             num = int(expiration[:-1])
-            unit = expiration[-1]
+            unit = expiration[-1].lower()  
             if unit not in time_units:
                 raise ValueError
             delta = timedelta(**{time_units[unit]: num})
-            expiration_timestamp = int((datetime.now() + delta).timestamp())
+            expiration_time = datetime.now() + delta
+            expiration_timestamp = int(expiration_time.timestamp())
         except (ValueError, TypeError):
             await interaction.response.send_message("❌ Invalid expiration format. Use `1d`, `2h`, `30m` etc.", ephemeral=True)
             return
 
-        if buyer_id in invoices:
-            del invoices[buyer_id]
-            save_invoices(invoices)
+        invoices = load_invoices()
+
+        found_invoice = None
+        remaining_invoices = []
+        for inv in invoices:
+            if (inv.get("UserID") == buyer.id and 
+                inv.get("service").lower() == service.lower() and 
+                inv.get("ingame_name").lower() == ingame_name.lower() and 
+                inv.get("amount") == amount):
+                found_invoice = inv
+            else:
+                remaining_invoices.append(inv)
+
+        if found_invoice:
+            save_invoices(remaining_invoices)
 
         embed = discord.Embed(
             title="⏳ Manual Payment Reminder",
@@ -76,7 +84,7 @@ class ReminderCog(commands.Cog):
             color=discord.Color.red()
         )
         embed.add_field(name="👤 Buyer", value=buyer.mention, inline=False)
-        embed.add_field(name="🆔 Buyer ID", value=buyer_id, inline=False)
+        embed.add_field(name="🆔 Buyer ID", value=str(buyer.id), inline=False)
         embed.add_field(name="🎮 Buyer In-Game Name", value=ingame_name, inline=False)
         embed.add_field(name="🛠 Staff Handler", value=staff.mention, inline=False)
         embed.add_field(name="🛒 Service", value=service, inline=False)
@@ -95,6 +103,7 @@ class ReminderCog(commands.Cog):
         except discord.Forbidden:
             await interaction.response.send_message(f"⚠️ Could not DM {buyer.mention}. They might have DMs disabled!", ephemeral=True)
 
+
         log_channel = self.bot.get_channel(LOG_CHANNEL_ID)
         log_embed = discord.Embed(
             description=f"📢 Manual reminder sent to {buyer.mention}, handled by {interaction.user.mention}.",
@@ -102,15 +111,20 @@ class ReminderCog(commands.Cog):
         )
         await log_channel.send(embed=log_embed)
 
-        logs[buyer_id] = {
-            "status": "Manual Reminder Sent",
-            "buyer": buyer.mention,
-            "ingame_name": ingame_name,
-            "staff": staff.mention,
+        purchase_date = found_invoice.get("invoice_generated") if found_invoice and found_invoice.get("invoice_generated") else datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        log_entry = {
+            "UserID": buyer.id,
             "service": service,
             "amount": amount,
-            "expiration": expiration
+            "expiration": expiration_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "ingame_name": ingame_name,
+            "staff": str(staff.id),
+            "status": "Manual Reminder Sent",
+            "reminder_generated": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            "purchase_date": purchase_date
         }
+        logs = load_logs()  
+        logs.append(log_entry)
         save_logs(logs)
 
 async def setup(bot: commands.Bot):
