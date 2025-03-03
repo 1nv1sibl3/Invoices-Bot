@@ -143,6 +143,37 @@ Make sure to configure any necessary settings in your `main.py` or any configura
   -wv   (when replying to a user's message, checks that user)
   ```
 
+### /sale
+**Description:**  
+Shows sales statistics based on a query, aggregating data from active service invoices, logged service invoices, and coin invoices.  
+Displays total revenue, total invoices, service revenue, coins profit, and invoice counts for services and coins.
+
+**Usage Examples:**  
+- `/sale lifetime` – Displays lifetime sales stats.  
+- `/sale 2025` – Displays stats for the year 2025.  
+- `/sale january` – Displays stats for January (across all years).
+
+### /history
+**Description:**  
+Retrieves the purchase history for a specified user.  
+- By default, it shows full purchase history (active service, logged service, and coin invoices).  
+- Optionally, using a category (e.g. "coins") filters the history to show only coin purchases, along with total coin profit.  
+Paginated embeds allow navigation through multiple pages.
+
+**Usage Examples:**  
+- `/history user:@User` – Retrieves full purchase history for @User.  
+- `/history user:@User coins` – Retrieves only coin purchase history for @User with total profit.
+
+### /services
+**Description:**  
+Lists active service invoices from the system.  
+- Use "active" to display all active invoices.  
+- Or provide a specific service name (e.g., "celestia") to filter the active invoices.
+
+**Usage Examples:**  
+- `/services active` – Displays all active service invoices.  
+- `/services celestia` – Displays active invoices for the service "Celestia".
+
 ## Running the Bot
 
 Make sure your bot is added to a Discord server with the appropriate permissions to send messages and manage roles. After configuring and running the bot, it will automatically start interacting with users as per the defined tasks.
