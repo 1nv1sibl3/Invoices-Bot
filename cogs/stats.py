@@ -3,7 +3,7 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from typing import Optional
 
@@ -44,12 +44,12 @@ class StatsCog(commands.Cog):
     @app_commands.describe(query="Enter a month (e.g. january), a year (e.g. 2025), or 'lifetime'")
     async def sale(self, ctx: commands.Context, query: str):
         query_lower = query.lower().strip()
-        service_invs = load_invoices()   
-        service_logs = load_logs()       
-        coins_invs = load_coins_invoices()
+        service_invs = load_invoices()   # Active service invoices (with "invoice_generated")
+        service_logs = load_logs()         # Logged service invoices (with "invoice_generated")
+        coins_invs = load_coins_invoices() # Coin invoices (with "DateOfPurchase" and Final_INR_Amount)
         combined = []
 
-     
+        # Process active service invoices
         for inv in service_invs:
             try:
                 dt = datetime.strptime(inv.get("invoice_generated", ""), "%Y-%m-%d %H:%M:%S")
@@ -62,7 +62,8 @@ class StatsCog(commands.Cog):
                 "date": dt,
                 "type": "Service Active"
             })
-    
+
+        # Process logged service invoices
         for inv in service_logs:
             try:
                 dt = datetime.strptime(inv.get("invoice_generated", ""), "%Y-%m-%d %H:%M:%S")
@@ -75,6 +76,7 @@ class StatsCog(commands.Cog):
                 "date": dt,
                 "type": "Service Logged"
             })
+
         # Process coin invoices (using DateOfPurchase and Final_INR_Amount)
         for inv in coins_invs:
             try:
@@ -98,8 +100,11 @@ class StatsCog(commands.Cog):
             filtered = [inv for inv in combined if inv["date"].year == year]
             title = f"Sales Stats for {year}"
         else:
-            month_names = {"january":1,"february":2,"march":3,"april":4,"may":5,"june":6,
-                           "july":7,"august":8,"september":9,"october":10,"november":11,"december":12}
+            month_names = {
+                "january": 1, "february": 2, "march": 3, "april": 4,
+                "may": 5, "june": 6, "july": 7, "august": 8,
+                "september": 9, "october": 10, "november": 11, "december": 12
+            }
             if query_lower not in month_names:
                 await ctx.send("❌ Invalid query. Please enter a valid month name, year, or 'lifetime'.", ephemeral=True)
                 return
@@ -114,156 +119,205 @@ class StatsCog(commands.Cog):
         coins_profit = sum(inv.get("amount", 0) for inv in filtered if inv["type"] == "Coins")
         service_revenue = total_revenue - coins_profit
 
-        embed = discord.Embed(title=title, color=discord.Color.green())
-        embed.add_field(name="Total Revenue", value=f"Rs. {total_revenue}", inline=False)
-        embed.add_field(name="Total Invoices", value=str(total_invoices), inline=True)
-        embed.add_field(name="Service Invoices", value=str(service_count), inline=True)
-        embed.add_field(name="Coins Invoices", value=str(coins_count), inline=True)
-        embed.add_field(name="Coins Profit", value=f"Rs. {coins_profit}", inline=False)
-        embed.add_field(name="Service Revenue", value=f"Rs. {service_revenue}", inline=False)
+        embed = discord.Embed(title=f"**{title}**", color=discord.Color.green())
+        embed.add_field(name="📄 Total Invoices", value=f"`{total_invoices}`", inline=True)
+        embed.add_field(name="🔧 Service Invoices", value=f"`{service_count}`", inline=True)
+        embed.add_field(name="💵 Coins Invoices", value=f"`{coins_count}`", inline=True)
+        embed.add_field(name="💸 Coins Profit", value=f"`Rs. {coins_profit}`", inline=False)
+        embed.add_field(name="📈 Service Revenue", value=f"`Rs. {service_revenue}`", inline=False)
+        embed.add_field(name="💰 Total Revenue", value=f"`Rs. {total_revenue}`", inline=False)
+        embed.set_footer(text=f"Data as of <t:{int(datetime.utcnow().timestamp())}:F>")
         await ctx.send(embed=embed)
+
 
     @commands.hybrid_command(name="history", description="Retrieve purchase history for a user")
     @commands.has_role(1329709323273900095)
-    @app_commands.describe(user="User to retrieve history for", category="Enter 'all' for full history or 'coins' for coin purchases")
-    async def history(self, ctx: commands.Context, user: discord.Member, category: Optional[str] = "all"):
-        category = category.lower()
-        service_invs = load_invoices()      # Active service invoices
-        service_logs = load_logs()            # Logged service invoices
-        coins_invs = load_coins_invoices()    # Coin invoices
+    @app_commands.describe(
+        user="User to retrieve history for"
+    )
+    async def history(self, ctx: commands.Context, user: discord.Member):
+        # Load invoice data from all sources
+        service_invs = load_invoices()    
+        service_logs = load_logs()            
+        coins_invs = load_coins_invoices()    
 
-        history = []
-        if category == "coins":
-            for inv in coins_invs:
-                if inv.get("UserID") == user.id:
-                    try:
-                        dt = datetime.strptime(inv.get("DateOfPurchase", ""), "%Y-%m-%d %H:%M:%S")
-                    except Exception:
-                        continue
-                    history.append({
-                        "service": inv.get("service") or "Coins",
-                        "amount": inv.get("Final_INR_Amount"),
-                        "date": dt.strftime("%Y-%m-%d %H:%M:%S"),
-                        "type": "Coins"
-                    })
-        else:
-            for inv in service_invs:
-                if inv.get("UserID") == user.id:
-                    try:
-                        dt = datetime.strptime(inv.get("invoice_generated", ""), "%Y-%m-%d %H:%M:%S")
-                    except Exception:
-                        continue
-                    history.append({
-                        "service": inv.get("service"),
-                        "amount": inv.get("amount"),
-                        "date": dt.strftime("%Y-%m-%d %H:%M:%S"),
-                        "type": "Service Active"
-                    })
-            for inv in service_logs:
-                if inv.get("UserID") == user.id:
-                    try:
-                        dt = datetime.strptime(inv.get("invoice_generated", ""), "%Y-%m-%d %H:%M:%S")
-                    except Exception:
-                        continue
-                    history.append({
-                        "service": inv.get("service"),
-                        "amount": inv.get("amount"),
-                        "date": dt.strftime("%Y-%m-%d %H:%M:%S"),
-                        "type": "Service Logged"
-                    })
-            for inv in coins_invs:
-                if inv.get("UserID") == user.id:
-                    try:
-                        dt = datetime.strptime(inv.get("DateOfPurchase", ""), "%Y-%m-%d %H:%M:%S")
-                    except Exception:
-                        continue
-                    history.append({
-                        "service": inv.get("service") if inv.get("service") and inv.get("service").lower() != "none" else "Coins",
-                        "amount": inv.get("Final_INR_Amount"),
-                        "date": dt.strftime("%Y-%m-%d %H:%M:%S"),
-                        "type": "Coins"
-                    })
+        # Build full history for each category
+        full_history = []
+        active_history = []
+        logged_history = []
+        coins_history = []
 
-        if not history:
+        for inv in service_invs:
+            if inv.get("UserID") == user.id:
+                try:
+                    dt = datetime.strptime(inv.get("invoice_generated", ""), "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    continue
+                entry = {
+                    "service": inv.get("service"),
+                    "amount": inv.get("amount"),
+                    "date": dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    "type": "Service Active",
+                    "invoice_generated": inv.get("invoice_generated", "N/A")
+                }
+                full_history.append(entry)
+                active_history.append(entry)
+
+        for inv in service_logs:
+            if inv.get("UserID") == user.id:
+                try:
+                    dt = datetime.strptime(inv.get("invoice_generated", ""), "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    continue
+                entry = {
+                    "service": inv.get("service"),
+                    "amount": inv.get("amount"),
+                    "date": dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    "type": "Service Logged",
+                    "invoice_generated": inv.get("invoice_generated", "N/A")
+                }
+                full_history.append(entry)
+                logged_history.append(entry)
+
+        for inv in coins_invs:
+            if inv.get("UserID") == user.id:
+                try:
+                    dt = datetime.strptime(inv.get("DateOfPurchase", ""), "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    continue
+                entry = {
+                    "service": inv.get("service") if inv.get("service") and inv.get("service").lower() != "none" else "Coins",
+                    "amount": inv.get("Final_INR_Amount"),
+                    "date": dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    "type": "Coins",
+                    "invoice_generated": inv.get("DateOfPurchase", "N/A")
+                }
+                full_history.append(entry)
+                coins_history.append(entry)
+
+        if not full_history:
             await ctx.send(f"No purchase history found for {user.mention}.", ephemeral=True)
             return
 
-        # Sort history by date descending
-        history.sort(key=lambda x: datetime.strptime(x["date"], "%Y-%m-%d %H:%M:%S"), reverse=True)
-        per_page = 5
-        total_profit = 0
-        if category == "coins":
-            total_profit = sum(entry["amount"] for entry in history if entry["type"] == "Coins")
+        # Sort each list by date descending
+        def sort_entries(entries):
+            return sorted(entries, key=lambda x: datetime.strptime(x["date"], "%Y-%m-%d %H:%M:%S"), reverse=True)
+        
+        full_history = sort_entries(full_history)
+        active_history = sort_entries(active_history)
+        logged_history = sort_entries(logged_history)
+        coins_history = sort_entries(coins_history)
 
-        def build_embed(page: int):
-            embed = discord.Embed(
-                title=f"Purchase History for {user.display_name}",
-                color=discord.Color.blue()
-            )
-            start = page * per_page
-            end = start + per_page
-            for entry in history[start:end]:
-                # Parse the date and convert to Discord timestamp format
-                try:
-                    dt = datetime.strptime(entry["date"], "%Y-%m-%d %H:%M:%S")
-                    timestamp = int(dt.timestamp())
-                    date_formatted = f"<t:{timestamp}:F>"
-                except Exception:
-                    date_formatted = entry["date"]
-                service_name = entry["service"] if entry["service"] and entry["service"].lower() != "none" else "Coins"
-                embed.add_field(
-                    name=f"{entry['type']} - {service_name}",
-                    value=f"Amount: Rs. {entry['amount']}\nDate: {date_formatted}",
-                    inline=False
-                )
-            total_pages = (len(history) - 1) // per_page + 1
-            embed.set_footer(text=f"Page {page+1}/{total_pages}")
-            if category == "coins" and page == 0:
-                embed.add_field(name="Total Coins Profit", value=f"Rs. {total_profit}", inline=False)
-            return embed
+        # Prepare data dictionary for the view
+        history_data = {
+            "all": full_history,
+            "active": active_history,
+            "logged": logged_history,
+            "coins": coins_history
+        }
 
-        if len(history) <= per_page:
-            embed = build_embed(0)
-            await ctx.send(embed=embed)
-        else:
-            view = HistoryView(history, per_page, total_profit if category == "coins" else None)
-            await ctx.send(embed=view.get_embed(), view=view)
+        view = HistoryCategoryView(user, history_data, per_page=5)
+        await ctx.send(embed=view.get_embed(), view=view)
 
-    @commands.hybrid_command(name="services", description="List active services; optionally filter by service name")
+    @commands.hybrid_command(name="services", description="List active service invoices with expiry details; optionally filter by service name")
     @commands.has_role(1329709323273900095)
     @app_commands.describe(query="Type 'active' for all, or a specific service name")
     async def services(self, ctx: commands.Context, query: str):
         query_lower = query.lower().strip()
         service_invs = load_invoices()
+
         if query_lower == "active":
             filtered = service_invs
-            title = "Active Service Invoices"
+            title = "📋 Active Service Invoices"
         else:
             filtered = [inv for inv in service_invs if inv.get("service", "").lower() == query_lower]
-            title = f"Active Invoices for {query_lower.capitalize()}"
+            title = f"📋 Active Invoices for {query_lower.capitalize()}"
+
         if not filtered:
-            await ctx.send("No active invoices found for that query.", ephemeral=True)
+            await ctx.send("❌ No active invoices found for that query.", ephemeral=True)
             return
-        description_lines = []
+
+        # Column definitions (adjust widths as needed)
+        col_user_width = 15
+        col_service_width = 10
+        col_date_width = 18
+        col_expire_width = 10
+
+        # Header + separator
+        header = (
+            f"{'User':<{col_user_width}} | "
+            f"{'Service':<{col_service_width}} | "
+            f"{'Date':<{col_date_width}} | "
+            f"{'Expires':<{col_expire_width}}"
+        )
+        separator = "-" * (col_user_width + col_service_width + col_date_width + col_expire_width + 9)  # +9 for separators/spaces
+
+        lines = [header, separator]
+
         for inv in filtered:
-            line = f"UserID: {inv.get('UserID')}, Service: {inv.get('service')}, Amount: Rs. {inv.get('amount')}, Date: {inv.get('invoice_generated','N/A')}"
-            description_lines.append(line)
-        description = "\n".join(description_lines)
-        embed = discord.Embed(title=title, description=description, color=discord.Color.purple())
+            # 1) Resolve user name
+            uid = str(inv.get("UserID", "N/A"))
+            user_obj = ctx.guild.get_member(int(uid)) if uid.isdigit() else None
+            if user_obj:
+                # Truncate display name if needed
+                user_name = user_obj.display_name
+            else:
+                user_name = uid
+            if len(user_name) > col_user_width:
+                user_name = user_name[: col_user_width - 2] + ".."  # e.g. "Mr_Jagdish.." if too long
+
+            # 2) Service name
+            service_name = inv.get("service", "N/A")
+            if len(service_name) > col_service_width:
+                service_name = service_name[: col_service_width - 2] + ".."
+
+            # 3) Parse invoice_generated to date + expires in days
+            raw_date = inv.get("invoice_generated", "")
+            try:
+                dt = datetime.strptime(raw_date, "%Y-%m-%d %H:%M:%S")
+                date_str = dt.strftime("%d %b %Y %I:%M %p")  # e.g. "06 Feb 2025 04:09 PM"
+                if len(date_str) > col_date_width:
+                    date_str = date_str[: col_date_width - 2] + ".."
+                expiration_dt = dt + timedelta(days=28)
+                days_remaining = (expiration_dt - datetime.utcnow()).days
+                expires_str = f"{days_remaining}d" if days_remaining >= 0 else "Expired"
+            except Exception:
+                date_str = "N/A"
+                expires_str = "N/A"
+
+            # 4) Build line with fixed columns
+            line = (
+                f"{user_name:<{col_user_width}} | "
+                f"{service_name:<{col_service_width}} | "
+                f"{date_str:<{col_date_width}} | "
+                f"{expires_str:<{col_expire_width}}"
+            )
+            lines.append(line)
+
+        code_block = "```" + "\n".join(lines) + "```"
+        embed = discord.Embed(title=title, description=code_block, color=discord.Color.purple())
+        embed.set_footer(text="Data retrieved from active invoices")
         await ctx.send(embed=embed)
 
+
+
 # Pagination view for /history
-class HistoryView(discord.ui.View):
-    def __init__(self, entries, per_page=5, coins_profit: Optional[float] = None):
-        super().__init__(timeout=60)
-        self.entries = entries
+class HistoryCategoryView(discord.ui.View):
+    def __init__(self, user: discord.Member, history_data: dict, per_page=5):
+        super().__init__(timeout=120)
+        self.user = user
+        self.history_data = history_data  # Dict with keys: all, active, logged, coins
         self.per_page = per_page
-        self.current = 0
-        self.coins_profit = coins_profit
+        self.current_category = "all"
+        self.entries = self.history_data[self.current_category]
+        self.page = 0
 
     def get_embed(self):
-        embed = discord.Embed(title="Purchase History", color=discord.Color.blue())
-        start = self.current
+        embed = discord.Embed(
+            title=f"Purchase History for {self.user.display_name} ({self.current_category.capitalize()})",
+            color=discord.Color.blue()
+        )
+        start = self.page * self.per_page
         end = start + self.per_page
         for entry in self.entries[start:end]:
             try:
@@ -272,31 +326,62 @@ class HistoryView(discord.ui.View):
                 date_formatted = f"<t:{timestamp}:F>"
             except Exception:
                 date_formatted = entry["date"]
-            service_name = entry["service"] if entry["service"] and entry["service"].lower() != "none" else "Coins"
             embed.add_field(
-                name=f"{entry['type']} - {service_name}",
-                value=f"Amount: Rs. {entry['amount']}\nDate: {date_formatted}",
+                name=f"{entry['type']} - {entry['service']}",
+                value=f"Amount: `Rs. {entry['amount']}`\nDate: {date_formatted}\nInvoice: `{entry.get('invoice_generated','N/A')}`",
                 inline=False
             )
-        total_pages = (len(self.entries) - 1) // self.per_page + 1
-        embed.set_footer(text=f"Page {self.current // self.per_page + 1}/{total_pages}")
-        if self.coins_profit is not None and self.current == 0:
-            embed.add_field(name="Total Coins Profit", value=f"Rs. {self.coins_profit}", inline=False)
+        total_pages = (len(self.entries) - 1) // self.per_page + 1 if self.entries else 1
+        embed.set_footer(text=f"Page {self.page+1}/{total_pages}")
+        if self.current_category == "coins" and self.page == 0:
+            total_profit = sum(e["amount"] for e in self.entries)
+            embed.add_field(name="Total Coins Profit", value=f"`Rs. {total_profit}`", inline=False)
         return embed
 
-    @discord.ui.button(label="Previous", style=discord.ButtonStyle.grey)
+    async def update_message(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(embed=self.get_embed(), view=self)
+
+    @discord.ui.button(label="All", style=discord.ButtonStyle.primary)
+    async def all_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_category = "all"
+        self.entries = self.history_data["all"]
+        self.page = 0
+        await self.update_message(interaction)
+
+    @discord.ui.button(label="Active", style=discord.ButtonStyle.primary)
+    async def active_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_category = "active"
+        self.entries = self.history_data["active"]
+        self.page = 0
+        await self.update_message(interaction)
+
+    @discord.ui.button(label="Logged", style=discord.ButtonStyle.primary)
+    async def logged_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_category = "logged"
+        self.entries = self.history_data["logged"]
+        self.page = 0
+        await self.update_message(interaction)
+
+    @discord.ui.button(label="Coins", style=discord.ButtonStyle.primary)
+    async def coins_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_category = "coins"
+        self.entries = self.history_data["coins"]
+        self.page = 0
+        await self.update_message(interaction)
+
+    @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary)
     async def previous(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current - self.per_page >= 0:
-            self.current -= self.per_page
-            await interaction.response.edit_message(embed=self.get_embed(), view=self)
+        if self.page > 0:
+            self.page -= 1
+            await self.update_message(interaction)
         else:
             await interaction.response.defer()
 
-    @discord.ui.button(label="Next", style=discord.ButtonStyle.grey)
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
     async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current + self.per_page < len(self.entries):
-            self.current += self.per_page
-            await interaction.response.edit_message(embed=self.get_embed(), view=self)
+        if (self.page + 1) * self.per_page < len(self.entries):
+            self.page += 1
+            await self.update_message(interaction)
         else:
             await interaction.response.defer()
 
