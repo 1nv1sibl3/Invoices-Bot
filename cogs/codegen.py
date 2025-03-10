@@ -107,7 +107,7 @@ class GenerateCode(commands.Cog):
         alias_length = random.randint(4, 5)
         alias = ''.join(random.choices(string.ascii_lowercase, k=alias_length))
         destination = f"https://rcx.capitalrealm.fun/?code={redeem_code}"
-        atglinks_api_key = "a7037d9d473e27e1c4b4056dfa36c47616ef099f"
+        atglinks_api_key = ""
         atglinks_api_url = f"https://atglinks.com/api?api={atglinks_api_key}&url={destination}&alias={alias}"
         try:
             response = requests.get(atglinks_api_url)
