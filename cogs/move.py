@@ -4,8 +4,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 from typing import Optional, Union
-
-ROLE_ID_MV = [1218583488710840432, 1302868010855436360, 1310020946106777723, 1331514281963032597, 1310020946106777723, 1310023482825904249]
+from utils.permissions import user_has_permission
 
 class MoveCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -20,13 +19,8 @@ class MoveCog(commands.Cog):
     async def move_slash(self, interaction: discord.Interaction, player: discord.Member, 
                          target_user: Optional[discord.Member] = None, 
                          target_channel: Optional[discord.VoiceChannel] = None):
-        if not any(role.id in ROLE_ID_MV for role in interaction.user.roles):
-            await interaction.response.send_message("❌ You don't have permission to use this command!", ephemeral=True)
-            return
-
-        if not player.voice or not player.voice.channel:
+        if not user_has_permission("afk", ctx.author):
             await interaction.response.send_message(f"❌ {player.display_name} is not in a voice channel!", ephemeral=False)
-            return
 
         destination = None
         if target_user:
@@ -51,7 +45,8 @@ class MoveCog(commands.Cog):
     @commands.command(name="move", aliases=["mv"])
     async def move_prefix(self, ctx: commands.Context, player: discord.Member, 
                           target: Optional[Union[discord.Member, discord.VoiceChannel]] = None):
-        if not any(role.id in ROLE_ID_MV for role in ctx.author.roles):
+
+        if not user_has_permission("move", ctx.author):
             return await ctx.send("❌ You don't have permission to use this command!")
         
         if not player.voice or not player.voice.channel:

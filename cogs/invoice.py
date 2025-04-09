@@ -7,8 +7,9 @@ import json
 from datetime import datetime, timedelta
 import os
 from configs import INVOICE_CHANNEL_ID  
+from utils.permissions import user_has_permission
 
-INVOICES_FILE = "invoices.json"
+INVOICES_FILE = "./data/invoices.json"
 
 product_prices = {
     "celestia": 199,

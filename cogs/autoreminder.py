@@ -5,9 +5,10 @@ from discord.ext import commands, tasks
 import json
 from datetime import datetime, timedelta
 import os
+from utils.permissions import user_has_permission
 
-INVOICES_FILE = "invoices.json"  
-LOGS_FILE = "logs.json"          
+INVOICES_FILE = "./data/invoices.json"  
+LOGS_FILE = "./data/logs.json"          
 LOG_CHANNEL_ID = 1336384115959791728    
 
 def load_invoices():

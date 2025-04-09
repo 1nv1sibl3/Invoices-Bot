@@ -3,14 +3,14 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-from typing import Optional
+from typing import Optional, List
 import json
 import os
 from datetime import datetime
+from utils.permissions import *
 
-AFK_FILE = "afk.json"
-AFK_ALLOWED_ROLE = [1302868010855436360, 1310021540053651536, 1218583488710840432,1331514281963032597,1310020946106777723,1310023482825904249,1310081206209089617,1331515996678127616,1333029340266496031,1337413387839078477,1343193291046387733]
-IGNORED_CATEGORIES = [1228291469882691635, 1331496763114127452,1331496914092560495,1331638713431756962,1307045763385131139,1228291459665498152,1307044704260591646]  
+AFK_FILE = "./data/afk.json"
+AFK_CONFIG_FILE = "./data/afk_config.json"
 
 def load_afk():
     try:
@@ -23,26 +23,40 @@ def save_afk(data):
     with open(AFK_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
+def load_config():
+    try:
+        with open(AFK_CONFIG_FILE, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {"ignored_channels": [], "ignored_categories": []}
+
+def save_config(config):
+    with open(AFK_CONFIG_FILE, "w") as f:
+        json.dump(config, f, indent=4)
+
 class AFKManager(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.afk_users = load_afk()  # Format: { "user_id": {"reason": str, "time": ISO string, "original_nick": str } }
+        self.afk_users = load_afk()
+        self.config = load_config()
 
-    @commands.hybrid_command(name="afk", description="Set your AFK status with an optional reason.")
-    @app_commands.describe(reason="Reason for AFK (optional)")
-    @commands.has_any_role()
-    async def afk(self, ctx: commands.Context, *, reason: Optional[str] = None):
+    @commands.hybrid_command(name="afk", description="Set AFK for yourself or another user")
+    @app_commands.describe(user="User to set AFK (optional)", reason="Reason for AFK (optional)")
+    async def afk(self, ctx: commands.Context, user: Optional[discord.Member] = None, *, reason: Optional[str] = None):
+
+        if not user_has_permission("afk", ctx.author):
+            return
+
+        member = user or ctx.author
         reason = reason or "AFK"
-        member = ctx.author
+
         original_nick = member.display_name
-        if not original_nick.startswith("[AFK] "):
-            new_nick = f"[AFK] {original_nick}"
-        else:
-            new_nick = original_nick
+        new_nick = f"[AFK] {original_nick}" if not original_nick.startswith("[AFK] ") else original_nick
+
         try:
             await member.edit(nick=new_nick)
         except Exception:
-            pass  
+            pass
 
         self.afk_users[str(member.id)] = {
             "reason": reason,
@@ -50,14 +64,56 @@ class AFKManager(commands.Cog):
             "original_nick": original_nick
         }
         save_afk(self.afk_users)
-        await ctx.send(f"✅ {member.mention}, you are now AFK. Reason: `{reason}`")
+
+        if ctx.author == member:
+            await ctx.send(f"✅ {member.mention}, you are now AFK. Reason: `{reason}`")
+        else:
+            await ctx.send(f"✅ Set AFK for {member.mention}. Reason: `{reason}`")
+
+    @commands.hybrid_group(name="afkconfig", description="Configure AFK ignored channels/categories")
+    @commands.has_permissions(manage_guild=True)
+    async def afk_config(self, ctx):
+        if ctx.invoked_subcommand is None:
+            await ctx.send("Use `add` or `remove` subcommand to modify AFK ignore settings.")
+
+    @afk_config.command(name="add")
+    @commands.has_permissions(manage_guild=True)
+    async def afk_config_add(self, ctx, ignore_channels: commands.Greedy[discord.TextChannel] = None, ignore_categories: commands.Greedy[discord.CategoryChannel] = None):
+        ignore_channels = ignore_channels or []
+        ignore_categories = ignore_categories or []
+
+        for channel in ignore_channels:
+            if channel.id not in self.config["ignored_channels"]:
+                self.config["ignored_channels"].append(channel.id)
+        for category in ignore_categories:
+            if category.id not in self.config["ignored_categories"]:
+                self.config["ignored_categories"].append(category.id)
+
+        save_config(self.config)
+        await ctx.send("✅ AFK ignore configuration updated.")
+
+    @afk_config.command(name="remove")
+    @commands.has_permissions(manage_guild=True)
+    async def afk_config_remove(self, ctx, ignore_channels: commands.Greedy[discord.TextChannel] = None, ignore_categories: commands.Greedy[discord.CategoryChannel] = None):
+        ignore_channels = ignore_channels or []
+        ignore_categories = ignore_categories or []
+
+        for channel in ignore_channels:
+            if channel.id in self.config["ignored_channels"]:
+                self.config["ignored_channels"].remove(channel.id)
+        for category in ignore_categories:
+            if category.id in self.config["ignored_categories"]:
+                self.config["ignored_categories"].remove(category.id)
+
+        save_config(self.config)
+        await ctx.send("🗑️ AFK ignore configuration updated.")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.author.bot:
             return
 
-        if message.channel.category_id in IGNORED_CATEGORIES:
+        if message.channel.id in self.config["ignored_channels"] or message.channel.category_id in self.config["ignored_categories"]:
             return
 
         user_id = str(message.author.id)
@@ -76,7 +132,6 @@ class AFKManager(commands.Cog):
             except Exception:
                 pass
 
-        # Check if any mentioned users are AFK and notify
         for user in message.mentions:
             uid = str(user.id)
             if uid in self.afk_users:
@@ -86,23 +141,10 @@ class AFKManager(commands.Cog):
                     afk_time = datetime.fromisoformat(afk_info.get("time"))
                 except Exception:
                     afk_time = datetime.utcnow()
-                elapsed = datetime.utcnow() - afk_time
-                elapsed_seconds = int(elapsed.total_seconds())
-                days = elapsed_seconds // 86400
-                hours = (elapsed_seconds % 86400) // 3600
-                minutes = (elapsed_seconds % 3600) // 60
-
-                if days > 0:
-                    time_str = f"{days}d {hours}h {minutes}m"
-                elif hours > 0:
-                    time_str = f"{hours}h {minutes}m"
-                else:
-                    time_str = f"{minutes}m"
-
+                timestamp = int(afk_time.timestamp())
                 await message.channel.send(
-                    f"{user.mention} is currently AFK: **{reason}** (AFK for {time_str})"
+                    f"{user.mention} is currently AFK: **{reason}** (since <t:{timestamp}:R>)"
                 )
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(AFKManager(bot))

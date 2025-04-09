@@ -6,9 +6,10 @@ from datetime import datetime, timedelta
 import discord
 from discord.ext import commands
 from discord import app_commands
+from utils.permissions import user_has_permission
 
-LOGS_FILE = 'logs.json'
-INVOICES_FILE = 'invoices.json'
+LOGS_FILE = './data/logs.json'
+INVOICES_FILE = './data/invoices.json'
 LOG_CHANNEL_ID = 1336384115959791728 
 ALLOWED_ROLE_ID = 1337080845718126673    
 

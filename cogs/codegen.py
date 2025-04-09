@@ -13,10 +13,11 @@ import random
 import string
 import os
 import time
+from utils.permissions import user_has_permission
 
 db_config = {
     "host": "",
-    "port": ,
+    "port": 3306,
     "user": "",
     "password": "",
     "database": "",
@@ -77,8 +78,8 @@ class GenerateCode(commands.Cog):
         rcx_url = "https://api.capitalrealm.fun/generateCode"  
         payload = {
             "token": "",
-            "digit": ,
-            "amount": ,
+            "digit": 0,
+            "amount": 0,
             "template": "",
             "target": "",
             "targetUUID": uuid
@@ -133,6 +134,15 @@ class GenerateCode(commands.Cog):
         3. If linked, sends a POST to RCX API to generate a redeem code.
         4. Upon success, generates a shortened URL using AtgLinks and responds ephemerally.
         """
+
+        if not user_has_permission("codegen", ctx.author):
+            embed = discord.Embed(
+                title="🚫 No Permission",
+                description="You don't have permission to use this command.",
+                color=discord.Color.red()
+            )
+            return await ctx.send(embed=embed, ephemeral=True if ctx.interaction else False)
+
         user_id = str(interaction.user.id)
         uuid = self.retrieve_user_data(user_id)
         if not uuid:

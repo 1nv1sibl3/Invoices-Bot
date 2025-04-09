@@ -3,6 +3,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import os
+from utils.permissions import user_has_permission
 
 class RoleMapCog(commands.Cog):
     def __init__(self, bot: commands.Bot):

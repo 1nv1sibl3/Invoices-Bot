@@ -6,11 +6,12 @@ from discord import app_commands
 from datetime import datetime, timedelta
 import json
 from typing import Optional
+from utils.permissions import user_has_permission
 
 # File paths
-INVOICES_FILE = "invoices.json"           
-COINS_INVOICES_FILE = "coin_invoices.json"  
-LOGS_FILE = "logs.json"                     
+INVOICES_FILE = "./data/invoices.json"           
+COINS_INVOICES_FILE = "./data/coin_invoices.json"  
+LOGS_FILE = "./data/logs.json"                     
 
 # Helper functions to load data
 def load_invoices():
@@ -40,9 +41,17 @@ class StatsCog(commands.Cog):
 
     # /sale command (hybrid)
     @commands.hybrid_command(name="sale", description="Show sales stats by month, year, or lifetime")
-    @commands.has_role(1329709323273900095)
     @app_commands.describe(query="Enter a month (e.g. january), a year (e.g. 2025), or 'lifetime'")
     async def sale(self, ctx: commands.Context, query: str):
+
+        if not user_has_permission("stats", ctx.author):
+            embed = discord.Embed(
+                title="🚫 No Permission",
+                description="You don't have permission to use the command.",
+                color=discord.Color.red()
+            )
+            return await ctx.send(embed=embed, ephemeral=True if ctx.interaction else False)
+
         query_lower = query.lower().strip()
         service_invs = load_invoices()   # Active service invoices (with "invoice_generated")
         service_logs = load_logs()         # Logged service invoices (with "invoice_generated")

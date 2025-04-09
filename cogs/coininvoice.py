@@ -6,8 +6,9 @@ from datetime import datetime
 import discord
 from discord.ext import commands
 from discord import app_commands
+from utils.permissions import user_has_permission
 
-COINS_INVOICE = "coin_invoices.json"
+COINS_INVOICE = "./data/coin_invoices.json"
 INVOICES_ROLE = 1337080845718126673 
 LOG_CHANNEL_ID = 1336384115959791728 
 
@@ -27,10 +28,13 @@ class CoinInvoiceCog(commands.Cog):
         discount="Discount percentage (0-100)"
     )
     async def coininvoice(self, interaction: discord.Interaction, player: discord.Member, ingame_name: str, coin_amount: int, discount: float):
-        # Check if the user invoking the command has the required role
-        if INVOICES_ROLE not in [role.id for role in interaction.user.roles]:
-            await interaction.response.send_message("❌ You don't have permission to use this command!", ephemeral=True)
-            return
+        if not user_has_permission("coininvoice", ctx.author):
+            embed = discord.Embed(
+                title="🚫 No Permission",
+                description="You don't have permission to use this command.",
+                color=discord.Color.red()
+            )
+            return await ctx.send(embed=embed, ephemeral=True if ctx.interaction else False)
 
         if discount < 0 or discount > 100:
             await interaction.response.send_message("❌ Discount must be between 0% and 100%!", ephemeral=True)

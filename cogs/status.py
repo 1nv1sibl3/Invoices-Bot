@@ -2,8 +2,8 @@
 import discord
 from discord.ext import commands
 from discord import app_commands, Activity, ActivityType, Status
+from utils.permissions import user_has_permission
 
-ROLE_ID_STATUS = [1218583488710840432]  
 
 class StatusCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -11,9 +11,13 @@ class StatusCog(commands.Cog):
 
     @commands.hybrid_command(name="setstatus", description="Set the bot's status and activity.")
     async def setstatus(self, ctx: commands.Context, status: str, activity_type: str, *, message: str):
-        if not any(role.id in ROLE_ID_STATUS for role in ctx.author.roles):
-            await ctx.send("❌ You don't have permission to use this command!", delete_after=5)
-            return
+        if not user_has_permission("status", ctx.author):
+            embed = discord.Embed(
+                title="🚫 No Permission",
+                description="You don't have permission to use the command.",
+                color=discord.Color.red()
+            )
+            return await ctx.send(embed=embed, ephemeral=True if ctx.interaction else False)
 
         status_dict = {
             "online": Status.online,

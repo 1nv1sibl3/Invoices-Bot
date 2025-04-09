@@ -3,8 +3,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 from typing import Optional
-
-ROLE_ID_MSG = [1218583488710840432, 1302868010855436360, 1310020946106777723]
+from utils.permissions import user_has_permission
 
 class MessageCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -12,9 +11,10 @@ class MessageCog(commands.Cog):
 
     @commands.command(name="msg", aliases=["message"])
     async def msg(self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None, *, message: str):
-        if not any(role.id in ROLE_ID_MSG for role in ctx.author.roles):
+        
+        if not user_has_permission("message", ctx.author):
             return await ctx.send("❌ You don't have permission to use this command!", delete_after=5)
-
+        
         try:
             await ctx.message.delete()
         except discord.HTTPException:
@@ -29,7 +29,7 @@ class MessageCog(commands.Cog):
         channel="Target channel (optional)"
     )
     async def slash_message(self, interaction: discord.Interaction, message: str, channel: Optional[discord.TextChannel] = None):
-        if not any(role.id in ROLE_ID_MSG for role in interaction.user.roles):
+        if not user_has_permission("message", interaction.user.id):
             await interaction.response.send_message("❌ You don't have permission to use this command!", ephemeral=True)
             return
         
