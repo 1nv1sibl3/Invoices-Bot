@@ -5,7 +5,7 @@ from discord.ext import commands
 from discord import app_commands
 from utils.permissions import user_has_permission
 
-ALLOWED_ROLE_ID = 1355500394087972996 
+ALLOWED_ROLE_ID = 1357669593124045005 
 
 class ReloadCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
