@@ -19,7 +19,7 @@ class MoveCog(commands.Cog):
     async def move_slash(self, interaction: discord.Interaction, player: discord.Member, 
                          target_user: Optional[discord.Member] = None, 
                          target_channel: Optional[discord.VoiceChannel] = None):
-        if not user_has_permission("afk", ctx.author):
+        if not user_has_permission("move", ctx.author):
             await interaction.response.send_message(f"❌ {player.display_name} is not in a voice channel!", ephemeral=False)
 
         destination = None
