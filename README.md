@@ -252,3 +252,5 @@ We welcome contributions! To contribute:
 5. Create a new pull request.
 
 Let me know if you’d like me to sort commands alphabetically, collapse advanced ones under a heading, or generate a table of contents too 📘
+
+<!-- GitAds-Verify: 69BVQ13L9HF6I9GDC2H6Y3892JTQ8IAN -->
