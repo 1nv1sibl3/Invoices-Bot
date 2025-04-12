@@ -254,3 +254,7 @@ We welcome contributions! To contribute:
 Let me know if you’d like me to sort commands alphabetically, collapse advanced ones under a heading, or generate a table of contents too 📘
 
 <!-- GitAds-Verify: 69BVQ13L9HF6I9GDC2H6Y3892JTQ8IAN -->
+
+## GitAds Sponsored
+[![Sponsored by GitAds](https://gitads.dev/v1/ad-serve?source=1nv1sibl3/invoices-bot@github)](https://gitads.dev/v1/ad-track?source=1nv1sibl3/invoices-bot@github)
+
